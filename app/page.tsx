@@ -2,7 +2,7 @@ import { SpanishLearningApp } from "@/components/spanish-learning-app";
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-background">
       <SpanishLearningApp />
     </main>
   );

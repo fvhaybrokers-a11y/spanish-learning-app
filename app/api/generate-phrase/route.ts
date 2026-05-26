@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialize OpenAI client to avoid errors at module load time
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 export async function POST(request: Request) {
   try {
@@ -15,6 +18,8 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    const openai = getOpenAIClient();
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",

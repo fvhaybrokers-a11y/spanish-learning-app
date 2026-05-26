@@ -2,9 +2,17 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { put, list } from "@vercel/blob";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialize OpenAI client to avoid errors at module load time
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
+
+// Check if Blob is configured
+function isBlobConfigured(): boolean {
+  return !!process.env.BLOB_READ_WRITE_TOKEN;
+}
 
 // Generate a cache key from text and provider
 function getCacheKey(text: string, provider: string): string {
@@ -14,6 +22,9 @@ function getCacheKey(text: string, provider: string): string {
 
 // Check if audio exists in blob cache
 async function getFromCache(cacheKey: string): Promise<string | null> {
+  if (!isBlobConfigured()) {
+    return null;
+  }
   try {
     const { blobs } = await list({ prefix: cacheKey });
     if (blobs.length > 0) {
@@ -27,16 +38,25 @@ async function getFromCache(cacheKey: string): Promise<string | null> {
 }
 
 // Save audio to blob cache
-async function saveToCache(cacheKey: string, audioBuffer: Buffer): Promise<string> {
-  const blob = await put(cacheKey, audioBuffer, {
-    access: "public",
-    contentType: "audio/mpeg",
-  });
-  return blob.url;
+async function saveToCache(cacheKey: string, audioBuffer: Buffer): Promise<string | null> {
+  if (!isBlobConfigured()) {
+    return null;
+  }
+  try {
+    const blob = await put(cacheKey, audioBuffer, {
+      access: "public",
+      contentType: "audio/mpeg",
+    });
+    return blob.url;
+  } catch (error) {
+    console.error("Cache save error:", error);
+    return null;
+  }
 }
 
 // Generate audio using OpenAI TTS
 async function generateOpenAIAudio(text: string): Promise<Buffer> {
+  const openai = getOpenAIClient();
   const response = await openai.audio.speech.create({
     model: "tts-1",
     voice: "nova",
@@ -93,7 +113,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
 
-    // Check cache first
+    // Check cache first (only if Blob is configured)
     const cacheKey = getCacheKey(text, provider);
     const cachedUrl = await getFromCache(cacheKey);
 
@@ -116,10 +136,18 @@ export async function POST(request: Request) {
       audioBuffer = await generateOpenAIAudio(text);
     }
 
-    // Save to cache
+    // Try to save to cache (will be skipped if Blob not configured)
     const audioUrl = await saveToCache(cacheKey, audioBuffer);
 
-    return NextResponse.json({ audioUrl, cached: false });
+    if (audioUrl) {
+      // Cached successfully - return blob URL
+      return NextResponse.json({ audioUrl, cached: false });
+    } else {
+      // No blob configured - return audio as base64 data URL
+      const base64Audio = audioBuffer.toString("base64");
+      const dataUrl = `data:audio/mpeg;base64,${base64Audio}`;
+      return NextResponse.json({ audioUrl: dataUrl, cached: false });
+    }
   } catch (error) {
     console.error("TTS error:", error);
     return NextResponse.json(
