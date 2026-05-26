@@ -1,181 +1,229 @@
 "use client";
 
-import { useState } from "react";
-import { PhraseGenerator } from "./phrase-generator";
-import { AudioPlayer } from "./audio-player";
+import { useState, useCallback } from "react";
+import { PhraseSettings } from "./phrase-settings";
+import { PhraseEditor } from "./phrase-editor";
+import { AudioScriptPreview } from "./audio-script-preview";
+import { AudioControls } from "./audio-controls";
 import { EnvironmentDebugPanel } from "./environment-debug-panel";
-import { Volume2, BookOpen, Settings } from "lucide-react";
-
-export type TTSProvider = "openai" | "elevenlabs";
+import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 
 export interface Phrase {
+  id: string;
   spanish: string;
   english: string;
-  category: string;
 }
 
+export interface AudioSettings {
+  pauseAfterEnglish: number;
+  pauseAfterSpanish: number;
+}
+
+export type DifficultyLevel = "beginner" | "intermediate" | "advanced";
+
+const TOPICS = [
+  "Greetings & Introductions",
+  "Food & Dining",
+  "Travel & Transportation",
+  "Shopping & Money",
+  "Directions & Locations",
+  "Emergency & Health",
+  "Family & Relationships",
+  "Work & Business",
+  "Weather & Nature",
+  "Hobbies & Entertainment",
+];
+
 export function SpanishLearningApp() {
-  const [currentPhrase, setCurrentPhrase] = useState<Phrase | null>(null);
+  // Settings state
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>("beginner");
+  const [topic, setTopic] = useState<string>(TOPICS[0]);
+  const [numPhrases, setNumPhrases] = useState<number>(3);
+  const [pauseAfterEnglish, setPauseAfterEnglish] = useState<number>(2);
+  const [pauseAfterSpanish, setPauseAfterSpanish] = useState<number>(3);
+
+  // Phrases state
+  const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [isGeneratingPhrases, setIsGeneratingPhrases] = useState(false);
+
+  // Audio state
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
-  const [ttsProvider, setTtsProvider] = useState<TTSProvider>("openai");
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+
+  // UI state
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const generatePhrase = async (category: string) => {
-    setIsGenerating(true);
+  const generatePhrases = useCallback(async () => {
+    setIsGeneratingPhrases(true);
     setError(null);
     setAudioUrl(null);
 
     try {
-      const response = await fetch("/api/generate-phrase", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to generate phrase");
-      }
-
-      const phrase: Phrase = await response.json();
-      setCurrentPhrase(phrase);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate phrase");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const generateAudio = async () => {
-    if (!currentPhrase) return;
-
-    setIsLoadingAudio(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/text-to-speech", {
+      const response = await fetch("/api/generate-phrases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: currentPhrase.spanish,
-          provider: ttsProvider,
+          topic,
+          difficulty,
+          count: numPhrases,
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to generate audio");
+        const data = await response.json();
+        throw new Error(data.error || "Failed to generate phrases");
       }
 
-      const { audioUrl: url, cached } = await response.json();
-      setAudioUrl(url);
-      if (cached) {
-        console.log("Audio loaded from cache");
+      const data = await response.json();
+      setPhrases(data.phrases);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate phrases");
+    } finally {
+      setIsGeneratingPhrases(false);
+    }
+  }, [topic, difficulty, numPhrases]);
+
+  const updatePhrase = useCallback((id: string, field: "spanish" | "english", value: string) => {
+    setPhrases((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
+    );
+    setAudioUrl(null); // Clear audio when phrases change
+  }, []);
+
+  const removePhrase = useCallback((id: string) => {
+    setPhrases((prev) => prev.filter((p) => p.id !== id));
+    setAudioUrl(null);
+  }, []);
+
+  const addPhrase = useCallback(() => {
+    const newPhrase: Phrase = {
+      id: `custom-${Date.now()}`,
+      spanish: "",
+      english: "",
+    };
+    setPhrases((prev) => [...prev, newPhrase]);
+    setAudioUrl(null);
+  }, []);
+
+  const generateAudio = useCallback(async () => {
+    if (phrases.length === 0) return;
+
+    setIsGeneratingAudio(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/generate-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phrases,
+          pauseAfterEnglish,
+          pauseAfterSpanish,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to generate audio");
       }
+
+      const data = await response.json();
+      setAudioUrl(data.audioUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate audio");
     } finally {
-      setIsLoadingAudio(false);
+      setIsGeneratingAudio(false);
     }
-  };
+  }, [phrases, pauseAfterEnglish, pauseAfterSpanish]);
 
   return (
     <div className="min-h-screen p-4 md:p-8">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <header className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <BookOpen className="w-8 h-8 text-[var(--primary)]" />
-            <h1 className="text-3xl md:text-4xl font-bold text-[var(--foreground)]">
+            <BookOpen className="w-8 h-8 text-primary" />
+            <h1 className="text-3xl md:text-4xl font-bold text-foreground">
               Spanish Learning App
             </h1>
           </div>
-          <p className="text-[var(--muted-foreground)]">
-            Generate phrases and listen to native pronunciation
+          <p className="text-muted-foreground">
+            Generate phrases, customize your lesson, and practice with native pronunciation
           </p>
         </header>
 
-        {/* TTS Provider Toggle */}
-        <div className="flex items-center justify-center gap-4 mb-6">
-          <span className="text-sm text-[var(--muted-foreground)]">TTS Provider:</span>
-          <div className="flex rounded-lg overflow-hidden border border-[var(--border)]">
-            <button
-              onClick={() => setTtsProvider("openai")}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                ttsProvider === "openai"
-                  ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                  : "bg-[var(--card)] text-[var(--card-foreground)] hover:bg-[var(--muted)]"
-              }`}
-            >
-              OpenAI
-            </button>
-            <button
-              onClick={() => setTtsProvider("elevenlabs")}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                ttsProvider === "elevenlabs"
-                  ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                  : "bg-[var(--card)] text-[var(--card-foreground)] hover:bg-[var(--muted)]"
-              }`}
-            >
-              ElevenLabs
-            </button>
-          </div>
+        {/* Collapsible Debug Panel */}
+        <div className="mb-6">
           <button
             onClick={() => setShowDebugPanel(!showDebugPanel)}
-            className="p-2 rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
-            title="Environment Debug Panel"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Settings className="w-4 h-4 text-[var(--muted-foreground)]" />
+            {showDebugPanel ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+            Environment Status
           </button>
+          {showDebugPanel && (
+            <div className="mt-2">
+              <EnvironmentDebugPanel />
+            </div>
+          )}
         </div>
 
-        {/* Debug Panel */}
-        {showDebugPanel && <EnvironmentDebugPanel />}
-
-        {/* Phrase Generator */}
-        <PhraseGenerator
-          onGenerate={generatePhrase}
-          isGenerating={isGenerating}
+        {/* Phrase Generation Settings */}
+        <PhraseSettings
+          difficulty={difficulty}
+          setDifficulty={setDifficulty}
+          topic={topic}
+          setTopic={setTopic}
+          topics={TOPICS}
+          numPhrases={numPhrases}
+          setNumPhrases={setNumPhrases}
+          pauseAfterEnglish={pauseAfterEnglish}
+          setPauseAfterEnglish={setPauseAfterEnglish}
+          pauseAfterSpanish={pauseAfterSpanish}
+          setPauseAfterSpanish={setPauseAfterSpanish}
+          onGenerate={generatePhrases}
+          isGenerating={isGeneratingPhrases}
         />
-
-        {/* Current Phrase Display */}
-        {currentPhrase && (
-          <div className="mt-6 p-6 rounded-xl bg-[var(--card)] border border-[var(--border)] shadow-sm">
-            <div className="text-center">
-              <p className="text-2xl md:text-3xl font-bold text-[var(--primary)] mb-2">
-                {currentPhrase.spanish}
-              </p>
-              <p className="text-lg text-[var(--muted-foreground)] mb-4">
-                {currentPhrase.english}
-              </p>
-              <span className="inline-block px-3 py-1 text-xs font-medium rounded-full bg-[var(--secondary)] text-[var(--secondary-foreground)]">
-                {currentPhrase.category}
-              </span>
-            </div>
-
-            {/* Audio Controls */}
-            <div className="mt-6 flex flex-col items-center gap-4">
-              <button
-                onClick={generateAudio}
-                disabled={isLoadingAudio}
-                className="flex items-center gap-2 px-6 py-3 rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Volume2 className="w-5 h-5" />
-                {isLoadingAudio ? "Generating Audio..." : "Listen to Pronunciation"}
-              </button>
-
-              {audioUrl && <AudioPlayer audioUrl={audioUrl} />}
-            </div>
-          </div>
-        )}
 
         {/* Error Display */}
         {error && (
-          <div className="mt-4 p-4 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-800">
-            <p className="text-red-700 dark:text-red-300 text-center">{error}</p>
+          <div className="mt-4 p-4 rounded-lg bg-destructive/10 border border-destructive/30">
+            <p className="text-destructive text-center">{error}</p>
           </div>
+        )}
+
+        {/* Editable Phrase List */}
+        {phrases.length > 0 && (
+          <PhraseEditor
+            phrases={phrases}
+            onUpdate={updatePhrase}
+            onRemove={removePhrase}
+            onAdd={addPhrase}
+          />
+        )}
+
+        {/* Audio Script Preview */}
+        {phrases.length > 0 && (
+          <AudioScriptPreview
+            phrases={phrases}
+            pauseAfterEnglish={pauseAfterEnglish}
+            pauseAfterSpanish={pauseAfterSpanish}
+          />
+        )}
+
+        {/* Audio Generation & Playback */}
+        {phrases.length > 0 && (
+          <AudioControls
+            onGenerate={generateAudio}
+            isGenerating={isGeneratingAudio}
+            audioUrl={audioUrl}
+            phrasesCount={phrases.length}
+          />
         )}
       </div>
     </div>

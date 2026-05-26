@@ -29,43 +29,53 @@ export function EnvironmentDebugPanel() {
     checkEnvironment();
   }, []);
 
+  const configuredCount = envStatus.filter((e) => e.configured).length;
+  const totalCount = envStatus.length;
+
   return (
-    <div className="mb-6 p-4 rounded-xl bg-[var(--card)] border border-[var(--border)] shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-[var(--card-foreground)]">
-          Environment Variables
-        </h3>
+    <div className="p-4 rounded-lg bg-muted/50 border border-border">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-foreground">
+            Environment Variables
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({configuredCount}/{totalCount} configured)
+          </span>
+        </div>
         <button
           onClick={checkEnvironment}
           disabled={isLoading}
-          className="p-2 rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+          className="p-1.5 rounded hover:bg-border transition-colors disabled:opacity-50"
           title="Refresh"
         >
-          <RefreshCw className={`w-4 h-4 text-[var(--muted-foreground)] ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`w-3.5 h-3.5 text-muted-foreground ${isLoading ? "animate-spin" : ""}`}
+          />
         </button>
       </div>
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {envStatus.map((env) => (
           <div
             key={env.name}
-            className="flex items-center justify-between p-2 rounded-lg bg-[var(--muted)]"
+            className="flex items-center gap-2 p-2 rounded bg-background"
           >
-            <code className="text-sm font-mono text-[var(--card-foreground)]">
-              {env.name}
-            </code>
             {env.configured ? (
-              <CheckCircle className="w-5 h-5 text-green-500" />
+              <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
             ) : (
-              <XCircle className="w-5 h-5 text-red-500" />
+              <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
             )}
+            <code className="text-xs font-mono text-foreground truncate">
+              {env.name.replace(/^(OPENAI_|ELEVENLABS_|BLOB_)/, "")}
+            </code>
           </div>
         ))}
       </div>
 
       {envStatus.some((env) => !env.configured) && (
-        <p className="mt-4 text-sm text-[var(--muted-foreground)]">
-          Some environment variables are not configured. Add them in the Vars section of the settings menu.
+        <p className="mt-3 text-xs text-muted-foreground">
+          Missing variables can be added in Settings &gt; Vars
         </p>
       )}
     </div>
